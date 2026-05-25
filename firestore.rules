@@ -1,0 +1,265 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{uid}
+    // Document ID: UID
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - email: string (required, immutable)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - role: string (required, enum: admin, mechanic)
+    //   - createdAt: timestamp (required, immutable)
+    //   - updatedAt: timestamp (required)
+    //
+    // Collection: /orders/{orderId}
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required, immutable)
+    //   - deviceId: string (required)
+    //   - vehicle: map (optional)
+    //   - plateState: string (optional)
+    //   - parts: list (optional)
+    //   - fluids: list (optional)
+    //   - media: list (optional)
+    //   - status: string (required, enum: draft, review, confirmed)
+    //   - isConfirmed: boolean (required)
+    //   - urgency: string (optional, enum: low, medium, high, urgent)
+    //   - needsCounterReview: boolean (required)
+    //   - fitmentConfidence: number (required)
+    //   - mechanicName: string (optional)
+    //   - shopName: string (optional)
+    //   - phoneNumber: string (optional)
+    //   - backendOrderId: string (optional)
+    //   - paymentMethod: string (optional)
+    //   - createdAt: timestamp (required, immutable)
+    //   - updatedAt: timestamp (required)
+    //
+    // Collection: /feedback/{feedbackId}
+    // Document ID: auto-generated
+    // Fields:
+    //   - text: string (required, max 5000 chars)
+    //   - userId: string (optional)
+    //   - userEmail: string (optional)
+    //   - deviceId: string (required)
+    //   - targetEmail: string (required, must be 'beta@ucp-demo.online')
+    //   - timestamp: timestamp (required)
+    //   - status: string (required, enum: new, read, resolved)
+    //
+    // Collection: /mechanic_memory/{userId}
+    // Document ID: User UID
+    // Fields:
+    //   - userId: string (required, immutable)
+    //   - lastDraft: map (optional, Order schema)
+    //   - recentHistory: list (optional, array of {role, text, timestamp})
+    //   - preferences: map (optional, {mechanicName, shopName, language})
+    //   - learnedFacts: list (optional, array of strings)
+    //   - updatedAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function uidUnchanged() {
+      return !('userId' in request.resource.data) ||
+        request.resource.data.userId == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('userId' in request.resource.data) ||
+        request.resource.data.userId == resource.data.userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isBootstrapAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.email == "myevabright@gmail.com" &&
+             request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrapAdmin() || 
+             (isAuthenticated() && 
+              exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function isRecent(time) {
+      return time is timestamp;
+    }
+
+    // Domain Validators
+    function isValidVehicle(vehicle) {
+      return vehicle is map &&
+        vehicle.keys().hasOnly(['year', 'make', 'model', 'trim', 'engine', 'drive', 'bodyClass', 'transmission', 'vin', 'licensePlate', 'plateState']) &&
+        (!('year' in vehicle) || (vehicle.year is string && vehicle.year.size() <= 10)) &&
+        (!('make' in vehicle) || (vehicle.make is string && vehicle.make.size() <= 50)) &&
+        (!('model' in vehicle) || (vehicle.model is string && vehicle.model.size() <= 50)) &&
+        (!('trim' in vehicle) || (vehicle.trim is string && vehicle.trim.size() <= 50)) &&
+        (!('engine' in vehicle) || (vehicle.engine is string && vehicle.engine.size() <= 50)) &&
+        (!('drive' in vehicle) || (vehicle.drive is string && vehicle.drive.size() <= 50)) &&
+        (!('bodyClass' in vehicle) || (vehicle.bodyClass is string && vehicle.bodyClass.size() <= 50)) &&
+        (!('transmission' in vehicle) || (vehicle.transmission is string && vehicle.transmission.size() <= 50)) &&
+        (!('vin' in vehicle) || (vehicle.vin is string && vehicle.vin.size() <= 20)) &&
+        (!('licensePlate' in vehicle) || (vehicle.licensePlate is string && vehicle.licensePlate.size() <= 20)) &&
+        (!('plateState' in vehicle) || (vehicle.plateState is string && vehicle.plateState.size() == 2));
+    }
+
+    function isValidPart(part) {
+      return part is map &&
+        part.keys().hasOnly(['name', 'quantity', 'brand', 'notes', 'partNumber', 'urgency', 'fitmentConfidence']) &&
+        part.name is string && part.name.size() > 0 && part.name.size() <= 100 &&
+        part.quantity is number && part.quantity >= 0 &&
+        (!('brand' in part) || (part.brand is string && part.brand.size() <= 100)) &&
+        (!('notes' in part) || (part.notes is string && part.notes.size() <= 500)) &&
+        (!('partNumber' in part) || (part.partNumber is string && part.partNumber.size() <= 100)) &&
+        (!('urgency' in part) || (part.urgency in ['low', 'medium', 'high', 'urgent'])) &&
+        (!('fitmentConfidence' in part) || (part.fitmentConfidence is number && part.fitmentConfidence >= 0 && part.fitmentConfidence <= 1));
+    }
+
+    function isValidFluid(fluid) {
+      return fluid is map &&
+        fluid.keys().hasOnly(['subcategory', 'spec', 'quantity', 'brand', 'type', 'urgency', 'fitmentConfidence']) &&
+        fluid.subcategory is string && fluid.subcategory.size() <= 50 &&
+        fluid.spec is string && fluid.spec.size() <= 100 &&
+        (!('quantity' in fluid) || (fluid.quantity is string && fluid.quantity.size() <= 50)) &&
+        (!('brand' in fluid) || (fluid.brand is string && fluid.brand.size() <= 50)) &&
+        (!('type' in fluid) || fluid.type is string) &&
+        (!('urgency' in fluid) || (fluid.urgency in ['low', 'medium', 'high', 'urgent'])) &&
+        (!('fitmentConfidence' in fluid) || (fluid.fitmentConfidence is number && fluid.fitmentConfidence >= 0 && fluid.fitmentConfidence <= 1));
+    }
+
+    function isValidMedia(media) {
+      return media is map &&
+        media.keys().hasOnly(['id', 'type', 'url', 'thumbnailUrl', 'timestamp']) &&
+        media.id is string && media.id.size() <= 50 &&
+        media.type in ['photo', 'video'] &&
+        media.url is string && media.url.size() <= 2048 &&
+        (!('thumbnailUrl' in media) || (media.thumbnailUrl is string && media.thumbnailUrl.size() <= 2048)) &&
+        media.timestamp is number;
+    }
+
+    function isValidOrder(data) {
+      return hasRequiredFields(['userId', 'deviceId', 'status', 'isConfirmed', 'updatedAt', 'needsCounterReview', 'fitmentConfidence']) &&
+        hasOnlyAllowedFields(['userId', 'deviceId', 'vehicle', 'parts', 'fluids', 'media', 'status', 'isConfirmed', 'mechanicName', 'shopName', 'phoneNumber', 'backendOrderId', 'paymentMethod', 'createdAt', 'updatedAt', 'plateState', 'urgency', 'needsCounterReview', 'fitmentConfidence']) &&
+        data.userId is string && data.userId.size() <= 100 &&
+        data.deviceId is string && data.deviceId.size() <= 100 &&
+        data.status in ['draft', 'review', 'confirmed'] &&
+        data.isConfirmed is bool &&
+        data.needsCounterReview is bool &&
+        data.fitmentConfidence is number &&
+        data.updatedAt is timestamp &&
+        (!('urgency' in data) || (data.urgency in ['low', 'medium', 'high', 'urgent'])) &&
+        (!('mechanicName' in data) || (data.mechanicName is string && data.mechanicName.size() <= 100)) &&
+        (!('shopName' in data) || (data.shopName is string && data.shopName.size() <= 100)) &&
+        (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+        (!('backendOrderId' in data) || (data.backendOrderId is string && data.backendOrderId.size() <= 100)) &&
+        (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 50)) &&
+        (!('plateState' in data) || (data.plateState is string && data.plateState.size() == 2)) &&
+        (!('vehicle' in data) || isValidVehicle(data.vehicle)) &&
+        (!('parts' in data) || (data.parts is list && data.parts.size() <= 50)) &&
+        (!('fluids' in data) || (data.fluids is list && data.fluids.size() <= 50)) &&
+        (!('media' in data) || (data.media is list && data.media.size() <= 20));
+    }
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'updatedAt']) &&
+        hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() <= 100 &&
+        data.email is string && data.email.size() <= 255 &&
+        data.role in ['admin', 'mechanic'] &&
+        data.updatedAt is timestamp &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048));
+    }
+
+    function isValidFeedback(data) {
+      return hasRequiredFields(['text', 'deviceId', 'targetEmail', 'timestamp', 'status']) &&
+        hasOnlyAllowedFields(['text', 'userId', 'userEmail', 'deviceId', 'targetEmail', 'timestamp', 'status']) &&
+        data.text is string &&
+        data.text.size() > 0 &&
+        data.text.size() <= 5000 &&
+        (data.userId == null || data.userId is string) &&
+        (data.userEmail == null || (data.userEmail is string && data.userEmail.size() <= 255)) &&
+        data.deviceId is string &&
+        data.deviceId.size() <= 100 &&
+        data.targetEmail == 'beta@ucp-demo.online' &&
+        data.timestamp is timestamp &&
+        data.status in ['new', 'read', 'resolved'];
+    }
+
+    function isValidMechanicMemory(data) {
+      return hasRequiredFields(['userId', 'updatedAt']) &&
+        hasOnlyAllowedFields(['userId', 'lastDraft', 'recentHistory', 'preferences', 'learnedFacts', 'updatedAt']) &&
+        data.userId is string && data.userId.size() <= 100 &&
+        data.updatedAt is timestamp &&
+        (!('lastDraft' in data) || (data.lastDraft is map)) &&
+        (!('recentHistory' in data) || (data.recentHistory is list && data.recentHistory.size() <= 100)) &&
+        (!('preferences' in data) || (data.preferences is map && data.preferences.keys().hasOnly(['mechanicName', 'shopName', 'language', 'agentName']))) &&
+        (!('learnedFacts' in data) || (data.learnedFacts is list && data.learnedFacts.size() <= 100));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /test/connection {
+      allow read: if isAuthenticated();
+    }
+
+    match /users/{uid} {
+      allow read: if isAuthenticated() && (isOwner(uid) || isAdmin());
+      allow create: if isOwner(uid) && isValidUser(request.resource.data) && (request.resource.data.role == 'mechanic' || isBootstrapAdmin());
+      allow update: if (isOwner(uid) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId) && isValidOrder(request.resource.data);
+      allow update: if isDocOwner() && uidNotModified() && isValidOrder(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /feedback/{feedbackId} {
+      allow create: if isAuthenticated() && (request.resource.data.userId == null || isOwner(request.resource.data.userId)) && isValidFeedback(request.resource.data);
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /mechanic_memory/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isAuthenticated() && request.auth.uid == userId && isValidMechanicMemory(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

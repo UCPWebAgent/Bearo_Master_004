@@ -1,0 +1,208 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "role": { "type": "string", "enum": ["admin", "mechanic"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Automotive service order",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "vehicle": { "$ref": "VehicleInfo" },
+        "vehicleIdentityLock": { "$ref": "VehicleIdentityLock" },
+        "fluids": {
+          "type": "array",
+          "items": { "$ref": "FluidOrder" }
+        },
+        "parts": {
+          "type": "array",
+          "items": { "$ref": "PartOrder" }
+        },
+        "media": {
+          "type": "array",
+          "items": { "$ref": "MediaItem" }
+        },
+        "mechanicName": { "type": "string" },
+        "shopName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "backendOrderId": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "isConfirmed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["draft", "review", "confirmed"] },
+        "urgency": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "needsCounterReview": { "type": "boolean" },
+        "fitmentConfidence": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "deviceId", "status", "isConfirmed", "needsCounterReview", "fitmentConfidence"]
+    },
+    "VehicleIdentityLock": {
+      "title": "VehicleIdentityLock",
+      "description": "Vehicle identification state and validation",
+      "type": "object",
+      "properties": {
+        "inputType": { "type": "string", "enum": ["vin", "plate", "ymm"] },
+        "rawInput": { "type": "string" },
+        "normalizedInput": { "type": "string" },
+        "validationResult": { "type": "boolean" },
+        "vinChecksumValid": { "type": "boolean" },
+        "plateState": { "type": "string" },
+        "decodeResult": { "$ref": "VehicleInfo" },
+        "confidenceScore": { "type": "number" },
+        "grade": { "type": "string", "enum": ["STRONG", "USABLE_BUT_INCOMPLETE", "WEAK", "FAILED"] },
+        "status": { "type": "string" },
+        "isConfirmed": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["inputType", "rawInput", "normalizedInput", "validationResult", "confidenceScore", "grade", "status", "isConfirmed", "timestamp"]
+    },
+    "VehicleInfo": {
+      "title": "VehicleInfo",
+      "description": "Vehicle details",
+      "type": "object",
+      "properties": {
+        "year": { "type": "string" },
+        "make": { "type": "string" },
+        "model": { "type": "string" },
+        "trim": { "type": "string" },
+        "engine": { "type": "string" },
+        "drive": { "type": "string" },
+        "bodyClass": { "type": "string" },
+        "transmission": { "type": "string" },
+        "vin": { "type": "string" },
+        "licensePlate": { "type": "string" },
+        "plateState": { "type": "string" }
+      }
+    },
+    "FluidOrder": {
+      "title": "FluidOrder",
+      "description": "Fluid service details",
+      "type": "object",
+      "properties": {
+        "subcategory": { "type": "string" },
+        "spec": { "type": "string" },
+        "quantity": { "type": "string" },
+        "brand": { "type": "string" },
+        "type": { "type": "string" },
+        "urgency": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "fitmentConfidence": { "type": "number" }
+      },
+      "required": ["subcategory", "spec"]
+    },
+    "PartOrder": {
+      "title": "PartOrder",
+      "description": "Part replacement details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "brand": { "type": "string" },
+        "notes": { "type": "string" },
+        "partNumber": { "type": "string" },
+        "urgency": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "fitmentConfidence": { "type": "number" }
+      },
+      "required": ["name", "quantity"]
+    },
+    "MediaItem": {
+      "title": "MediaItem",
+      "description": "Media attachment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["photo", "video"] },
+        "url": { "type": "string", "format": "uri" },
+        "thumbnailUrl": { "type": "string", "format": "uri" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "type", "url", "timestamp"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User feedback",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string", "format": "email" },
+        "deviceId": { "type": "string" },
+        "targetEmail": { "type": "string", "format": "email" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["new", "read", "resolved"] }
+      },
+      "required": ["text", "timestamp", "status"]
+    },
+    "MechanicMemory": {
+      "title": "MechanicMemory",
+      "description": "Persistent memory for a mechanic",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "lastDraft": { "$ref": "Order" },
+        "recentHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "assistant"] },
+              "text": { "type": "string" },
+              "timestamp": { "type": "number" }
+            }
+          }
+        },
+        "preferences": {
+          "type": "object",
+          "properties": {
+            "mechanicName": { "type": "string" },
+            "shopName": { "type": "string" },
+            "language": { "type": "string" },
+            "agentName": { "type": "string" }
+          }
+        },
+        "learnedFacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Service orders"
+    },
+    "/mechanic_memory/{userId}": {
+      "schema": "MechanicMemory",
+      "description": "Persistent memory for mechanics"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "User feedback"
+    },
+    "/test/connection": {
+      "schema": { "type": "object", "properties": {} },
+      "description": "Connection test document"
+    }
+  }
+}
